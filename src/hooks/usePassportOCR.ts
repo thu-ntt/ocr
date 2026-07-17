@@ -18,11 +18,21 @@ export function usePassportOCR() {
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
+  useEffect(() => {
+    const warmUp = () => { void preparePassportOCR().catch(() => undefined) }
+    const requestIdle = Reflect.get(window, 'requestIdleCallback') as typeof window.requestIdleCallback | undefined
+    if (requestIdle) {
+      const idleId = requestIdle(warmUp, { timeout: 2_000 })
+      return () => window.cancelIdleCallback(idleId)
+    }
+    const timeoutId = globalThis.setTimeout(warmUp, 500)
+    return () => globalThis.clearTimeout(timeoutId)
+  }, [])
+
   const setFile = useCallback((nextFile: File) => {
     const currentOperation = ++operationId.current
     setFileState(nextFile); setPreparedDocument(null); setResult(null); setError(''); setStatus('preparing')
-    // Model warm-up is intentionally detached from document preparation so the
-    // preview is never blocked by a large model download/initialization.
+    // Reuse or resume the idle warm-up without blocking document preparation.
     void preparePassportOCR().catch(() => undefined)
     void preparePassportDocument(nextFile)
       .then((prepared) => {
@@ -46,7 +56,9 @@ export function usePassportOCR() {
   const scan = useCallback(async () => {
     if (!preparedDocument) return
     const currentOperation = ++operationId.current
-    setStatus('preparing'); setError('')
+    // Never show data from a previous document while a new scan is running or
+    // after it fails document classification.
+    setResult(null); setStatus('preparing'); setError('')
     try {
       const extraction = await scanPassport(preparedDocument.ocrFile, (stage) => {
         if (operationId.current === currentOperation) setStatus(stage)
@@ -55,6 +67,7 @@ export function usePassportOCR() {
       setResult(extraction); setStatus('complete')
     } catch (reason) {
       if (operationId.current !== currentOperation) return
+      setResult(null)
       setError(t(`errors.${getScanErrorCode(reason)}`))
       setStatus('error')
     }

@@ -14,10 +14,22 @@ export interface PassportData {
 
 export type PassportField = keyof PassportData
 export type FieldConfidence = Partial<Record<PassportField, number>>
+export type PassportFieldSource = 'mrz' | 'visual-label' | 'visual-inference' | 'derived' | 'missing'
+
+export interface PassportFieldEvidence<T = string> {
+  value: T
+  source: PassportFieldSource
+  confidence: number
+}
+
+export type PassportEvidence = {
+  [Field in PassportField]: PassportFieldEvidence<PassportData[Field]>
+}
 
 export interface PassportExtraction {
   data: PassportData
   confidence: FieldConfidence
+  evidence: PassportEvidence
   rawText: string
   mrz: string[]
   warnings: string[]

@@ -10,7 +10,10 @@ export interface PassportProfile {
   id: string
   countries: readonly string[]
   rules: readonly VisualFieldRule[]
+  issueDateRegion?: NormalizedRegion
 }
+
+export interface NormalizedRegion { x: number; y: number; width: number; height: number }
 
 const COMMON_RULES: readonly VisualFieldRule[] = [
   { field: 'passportNumber', strategy: 'text', labels: ['Passport No\\.?', 'Passport Number', 'Document No\\.?', 'N° du passeport'] },
@@ -33,7 +36,7 @@ export const PASSPORT_PROFILES: readonly PassportProfile[] = [
     { field: 'nationality', strategy: 'text', labels: ['Quốc tịch'] },
     { field: 'issueDate', strategy: 'date', labels: ['Ngày cấp', 'Ngay cap'] },
   ] },
-  { id: 'japan', countries: ['JPN'], rules: [
+  { id: 'japan', countries: ['JPN'], issueDateRegion: { x: 0.28, y: 0.42, width: 0.55, height: 0.34 }, rules: [
     { field: 'passportNumber', strategy: 'text', labels: ['旅券番号', 'Passport No\\.?'] },
     { field: 'surname', strategy: 'text', labels: ['姓', 'Surname'] },
     { field: 'givenName', strategy: 'text', labels: ['名', 'Given name'] },
@@ -57,4 +60,8 @@ export function getVisualFieldRules(nationality?: string): VisualFieldRule[] {
     }
   }
   return [...rulesByField.values()]
+}
+
+export function getIssueDateRegion(nationality?: string): NormalizedRegion | undefined {
+  return PASSPORT_PROFILES.find((profile) => nationality && profile.countries.includes(nationality))?.issueDateRegion
 }

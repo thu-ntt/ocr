@@ -5,7 +5,12 @@ export const OCR_CONFIG = {
   recognitionModel: import.meta.env.VITE_OCR_RECOGNITION_MODEL || 'PP-OCRv6_tiny_rec',
   maxDetectionSide: 832,
   recognitionBatchSize: 8,
-  minimumRecognitionScore: 0.4,
+  // Passport print is often small or crossed by security artwork. Keep weak
+  // candidates here and let MRZ/domain validation decide whether they are valid.
+  minimumRecognitionScore: 0.28,
+  detailedDetectionSide: 1_120,
+  regionDetectionSide: 1_280,
+  regionRecognitionScore: 0.12,
   initializationTimeoutMs: 90_000,
   predictionTimeoutMs: 45_000,
   backend: import.meta.env.VITE_OCR_BACKEND || 'auto',

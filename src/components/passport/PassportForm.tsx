@@ -19,7 +19,9 @@ export function PassportForm({ result, onSubmit }: PassportFormProps) {
   const { register, reset, handleSubmit, formState: { errors, isSubmitting, isSubmitSuccessful } } = useForm<PassportFormValues>({
     resolver: zodResolver(passportSchema), mode: 'onSubmit', reValidateMode: 'onBlur', defaultValues: EMPTY_PASSPORT,
   })
-  useEffect(() => { if (result) reset(result.data, { keepDefaultValues: true }) }, [result, reset])
+  useEffect(() => {
+    reset(result?.data ?? EMPTY_PASSPORT, { keepDefaultValues: true })
+  }, [result, reset])
   const submit = async (data: PassportFormValues) => { await onSubmit?.(passportSchema.parse(data)) }
   return <form onSubmit={handleSubmit(submit)} className="passport-form" noValidate>
     <div className="section-heading"><div><span className="eyebrow"><Sparkles size={14} /> {t('form.eyebrow')}</span><h2>{t('form.title')}</h2><p>{t('form.description')}</p></div>{result ? <span className="filled-badge"><Check size={14} /> {t('form.autoFilled')}</span> : null}</div>

@@ -23,14 +23,20 @@ export function initializeOCREngine(): Promise<OcrEngine> {
   return enginePromise
 }
 
-export async function recognizeText(image: File | HTMLCanvasElement): Promise<OcrResult> {
-  const engine = await initializeOCREngine()
+interface RecognitionOptions { minimumScore?: number; detectionSide?: number }
+
+async function predict(engine: OcrEngine, image: File | HTMLCanvasElement, options: RecognitionOptions): Promise<OcrResult> {
   const results = await withTimeout(engine.predict(image, {
-    textRecScoreThresh: OCR_CONFIG.minimumRecognitionScore,
-    textDetLimitSideLen: OCR_CONFIG.maxDetectionSide,
+    textRecScoreThresh: options.minimumScore ?? OCR_CONFIG.minimumRecognitionScore,
+    textDetLimitSideLen: options.detectionSide ?? OCR_CONFIG.maxDetectionSide,
     textDetLimitType: 'max',
   }), OCR_CONFIG.predictionTimeoutMs, 'OCR_TIMEOUT')
   const result = results[0]
   if (!result) throw new Error('OCR returned no result')
   return result
+}
+
+export async function recognizeText(image: File | HTMLCanvasElement, options: RecognitionOptions = {}): Promise<OcrResult> {
+  const engine = await initializeOCREngine()
+  return predict(engine, image, options)
 }

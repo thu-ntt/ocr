@@ -1,7 +1,7 @@
-import type { FieldConfidence, PassportData, PassportExtraction } from '../types/passport'
+import type { FieldConfidence, PassportData, PassportEvidence, PassportExtraction, PassportField, PassportFieldSource } from '../types/passport'
 import { getVisualFieldRules, type VisualFieldRule } from '../config/passportProfiles'
 import { EMPTY_PASSPORT, findDatesInText, normalizeDate } from '../utils/passport'
-import { findMrzLines, parseMrz } from './mrz.service'
+import { detectMachineReadableDocumentType, findMrzLines, parseMrz } from './mrz.service'
 import { PassportScanError } from './passportScanError'
 
 function labeled(text: string, labels: string[]): string {
@@ -15,10 +15,16 @@ function dateNearLabel(text: string, labels: string[]): string {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (!line || !labelPattern.test(line)) continue
-    // PaddleOCR frequently emits the bilingual label and its value as separate lines.
-    for (const candidate of lines.slice(index, index + 8)) {
-      const parsed = normalizeDate(candidate.replace(labelPattern, ''))
-      if (parsed) return parsed
+    // PaddleOCR frequently emits the bilingual label and date tokens as
+    // separate lines. Test short adjacent windows instead of document-specific
+    // layouts or country-specific date strings.
+    const nearbyLines = lines.slice(index, index + 8)
+    for (let offset = 0; offset < nearbyLines.length; offset += 1) {
+      for (let size = 1; size <= 3 && offset + size <= nearbyLines.length; size += 1) {
+        const candidate = nearbyLines.slice(offset, offset + size).join(' ').replace(labelPattern, '')
+        const parsed = normalizeDate(candidate)
+        if (parsed) return parsed
+      }
     }
   }
   return ''
@@ -44,18 +50,92 @@ function parseVisualField(text: string, rule: VisualFieldRule): string {
 function parseVisualZone(rawText: string, nationality?: string): Partial<PassportData> {
   const extracted: Partial<PassportData> = {}
   for (const rule of getVisualFieldRules(nationality)) extracted[rule.field] = parseVisualField(rawText, rule) as never
-  if (extracted.passportNumber) extracted.passportNumber = extracted.passportNumber.replace(/\s/g, '').toUpperCase()
-  if (extracted.surname) extracted.surname = extracted.surname.toUpperCase()
-  if (extracted.givenName) extracted.givenName = extracted.givenName.toUpperCase()
-  if (extracted.nationality) extracted.nationality = extracted.nationality.split(/\s/)[0]?.toUpperCase() ?? ''
+  if (extracted.passportNumber) {
+    const token = extracted.passportNumber.trim().split(/\s/)[0]?.toUpperCase() ?? ''
+    extracted.passportNumber = /^[A-Z0-9]{6,12}$/.test(token) ? token : ''
+  }
+  if (extracted.surname) extracted.surname = sanitizeVisualName(extracted.surname)
+  if (extracted.givenName) extracted.givenName = sanitizeVisualName(extracted.givenName)
+  if (extracted.nationality) {
+    const token = extracted.nationality.trim().split(/\s/)[0]?.toUpperCase() ?? ''
+    extracted.nationality = /^[A-Z]{3}$/.test(token) ? token : ''
+  }
   return extracted
 }
 
+const EMBEDDED_LABEL = /\b(?:GIVEN\s*NAMES?|SURNAME|NATIONALITY|DATE\s*OF|SEX|PASSPORT|DOCUMENT)\b/i
+
+function sanitizeVisualName(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, ' ').toUpperCase()
+  if (!normalized || normalized.length > 60 || EMBEDDED_LABEL.test(normalized)) return ''
+  return /^[\p{L}][\p{L} '\u2019-]*$/u.test(normalized) ? normalized : ''
+}
+
+function mergeNonEmpty(...sources: ReadonlyArray<Partial<PassportData>>): PassportData {
+  const result: PassportData = { ...EMPTY_PASSPORT }
+  for (const source of sources) {
+    for (const field of Object.keys(source) as PassportField[]) {
+      const value = source[field]
+      if (value) result[field] = value as never
+    }
+  }
+  return result
+}
+
+const MRZ_FIELDS = new Set<PassportField>([
+  'passportNumber', 'surname', 'givenName', 'fullName', 'nationality',
+  'gender', 'dateOfBirth', 'expiryDate',
+])
+
+function fieldSource(
+  field: PassportField,
+  value: PassportData[PassportField],
+  mrzData: Partial<PassportData>,
+  visualData: Partial<PassportData>,
+  issueDateWasInferred: boolean,
+): PassportFieldSource {
+  if (!value) return 'missing'
+  if (MRZ_FIELDS.has(field) && mrzData[field]) return 'mrz'
+  if (field === 'issueDate' && issueDateWasInferred) return 'visual-inference'
+  if (visualData[field]) return 'visual-label'
+  if (field === 'fullName') return 'derived'
+  return 'visual-inference'
+}
+
+function sourceConfidence(source: PassportFieldSource, averageConfidence: number, mrzValid: boolean): number {
+  switch (source) {
+    case 'mrz': return mrzValid ? 0.99 : 0.7
+    case 'visual-label': return averageConfidence
+    case 'visual-inference': return Math.min(averageConfidence, 0.6)
+    case 'derived': return Math.min(averageConfidence, 0.9)
+    case 'missing': return 0
+  }
+}
+
+function buildEvidence(
+  data: PassportData,
+  mrzData: Partial<PassportData>,
+  visualData: Partial<PassportData>,
+  averageConfidence: number,
+  mrzValid: boolean,
+  issueDateWasInferred: boolean,
+): PassportEvidence {
+  return (Object.keys(data) as PassportField[]).reduce<PassportEvidence>((evidence, field) => {
+    const source = fieldSource(field, data[field], mrzData, visualData, issueDateWasInferred)
+    evidence[field] = { value: data[field] as never, source, confidence: sourceConfidence(source, averageConfidence, mrzValid) } as never
+    return evidence
+  }, {} as PassportEvidence)
+}
+
 function assertPassport(rawText: string, mrz: string[], visual: Partial<PassportData>): void {
+  const documentType = detectMachineReadableDocumentType(rawText)
+  const hasVisaHeading = /\b(?:ENTRY\s+VISA|VISA)\b/i.test(rawText)
+  if (documentType === 'visa' || documentType === 'other' || hasVisaHeading) {
+    throw new PassportScanError('NOT_PASSPORT')
+  }
   const passportSignals = [/\bPASSPORT\b/i, /PASSEPORT/i, /护照/, /旅券/, /HỘ CHIẾU/i].filter((pattern) => pattern.test(rawText)).length
   const extractedSignals = [visual.passportNumber, visual.surname, visual.nationality].filter(Boolean).length
   if (mrz.length !== 2 && passportSignals + extractedSignals < 2) throw new PassportScanError('NOT_PASSPORT')
-  if (mrz.length !== 2) throw new PassportScanError('MRZ_NOT_FOUND')
 }
 
 export function parsePassportText(rawText: string, averageConfidence = 0, metrics?: PassportExtraction['metrics']): PassportExtraction {
@@ -64,15 +144,18 @@ export function parsePassportText(rawText: string, averageConfidence = 0, metric
   const commonVisual = parseVisualZone(rawText)
   assertPassport(rawText, mrz, commonVisual)
   const countryVisual = parseVisualZone(rawText, parsedMrz.data.nationality)
-  const merged = { ...EMPTY_PASSPORT, ...commonVisual, ...countryVisual, ...parsedMrz.data }
+  const visual = mergeNonEmpty(commonVisual, countryVisual)
+  const merged = mergeNonEmpty(visual, parsedMrz.data)
   merged.fullName ||= `${merged.surname} ${merged.givenName}`.trim()
-  merged.issueDate ||= inferIssueDate(rawText, merged)
+  const issueDateWasInferred = !merged.issueDate
+  if (issueDateWasInferred) merged.issueDate = inferIssueDate(rawText, merged)
+  const evidence = buildEvidence(merged, parsedMrz.data, visual, averageConfidence, parsedMrz.valid, issueDateWasInferred)
   const confidence = Object.keys(merged).reduce<FieldConfidence>((result, key) => {
-    result[key as keyof PassportData] = merged[key as keyof PassportData] ? averageConfidence : 0
+    result[key as PassportField] = evidence[key as PassportField].confidence
     return result
   }, {})
   return {
-    data: merged, confidence, rawText, mrz, warnings: parsedMrz.warnings, isMrzValid: parsedMrz.valid,
+    data: merged, confidence, evidence, rawText, mrz, warnings: parsedMrz.warnings, isMrzValid: parsedMrz.valid,
     metrics: metrics ?? { detectionMs: 0, recognitionMs: 0, totalMs: 0, detectedBoxes: 0, recognizedLines: 0, backend: 'unknown' },
   }
 }
