@@ -30,6 +30,9 @@ export function extractVisualPassportData(rawText: string): Partial<PassportData
     givenName: holderName(
       readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.givenName),
     ),
+    fullName: holderName(
+      readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.fullName),
+    ),
     nationality: resolveNationalityCode(
       readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.nationality),
     ),

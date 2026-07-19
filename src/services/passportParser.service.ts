@@ -7,6 +7,7 @@ import {
   mergePassportData,
 } from './passportEvidence.service'
 import { resolvePassportIssueDate } from './passportIssueDate.service'
+import { restoreMrzNameSpacing } from './passportName.service'
 import { extractVisualPassportData } from './visualPassport.service'
 
 const EMPTY_METRICS: OCRMetrics = {
@@ -27,9 +28,10 @@ export function parsePassportText(
   const mrz = findMrzLines(rawText)
   const mrzResult = parseMrz(mrz)
   const visualData = extractVisualPassportData(rawText)
+  const mrzData = restoreMrzNameSpacing(mrzResult.data, visualData)
   assertPassportDocument(rawText, mrz.length === 2, visualData)
 
-  const data = mergePassportData(visualData, mrzResult.data)
+  const data = mergePassportData(visualData, mrzData)
   data.fullName = `${data.surname} ${data.givenName}`.trim()
 
   const labelledIssueDate = visualData.issueDate ?? ''
@@ -37,7 +39,7 @@ export function parsePassportText(
 
   const evidence = createPassportEvidence({
     data,
-    mrzData: mrzResult.data,
+    mrzData,
     visualData,
     averageConfidence,
     mrzValid: mrzResult.valid,
