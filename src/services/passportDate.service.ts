@@ -12,6 +12,7 @@ const DATE_PATTERNS = {
   eastAsian: new RegExp(`(${OCR_NUMBER}{4})\\s*年\\s*(${OCR_NUMBER}{1,2})\\s*月\\s*(${OCR_NUMBER}{1,2})\\s*日?`),
   yearFirst: new RegExp(`(${OCR_NUMBER}{4})[./-](${OCR_NUMBER}{1,2})[./-](${OCR_NUMBER}{1,2})`),
   numeric: new RegExp(`${DAY}[./-](${OCR_NUMBER}{1,2})[./-]${YEAR}`),
+  slashNamed: new RegExp(`${DAY}[ .-]*([A-Z]{2,9})\\s*/\\s*([A-Z]{2,9})[ .-]*${YEAR}`),
   bilingualNamed: new RegExp(`${DAY}\\s+(?:${OCR_NUMBER}{1,2}\\s*月\\s*/\\s*)?${MONTH_NAME}(?:\\s*/\\s*[A-Z]{3,9})?\\s+${YEAR}`),
   named: new RegExp(`${DAY}[ ./-]*${MONTH_NAME}(?:\\s*/\\s*[A-Z]{3,9})?[ ./-]*${YEAR}`),
 } as const
@@ -77,6 +78,12 @@ function parseNamedDate(match: RegExpMatchArray | null): string {
   return month ? toIsoDate(match[1] ?? '', month, match[3] ?? '') : ''
 }
 
+function parseSlashNamedDate(match: RegExpMatchArray | null): string {
+  if (!match) return ''
+  const month = monthNumber(match[2] ?? '') ?? monthNumber(match[3] ?? '')
+  return month ? toIsoDate(match[1] ?? '', month, match[4] ?? '') : ''
+}
+
 /** Converts common numeric, named, bilingual and East Asian VIZ dates to ISO. */
 export function normalizePassportDate(value: string): string {
   const text = normalizeText(value)
@@ -86,6 +93,9 @@ export function normalizePassportDate(value: string): string {
 
   const yearFirst = text.match(DATE_PATTERNS.yearFirst)
   if (yearFirst) return toIsoDate(yearFirst[3] ?? '', yearFirst[2] ?? '', yearFirst[1] ?? '')
+
+  const slashNamed = parseSlashNamedDate(text.match(DATE_PATTERNS.slashNamed))
+  if (slashNamed) return slashNamed
 
   const bilingualNamed = parseNamedDate(text.match(DATE_PATTERNS.bilingualNamed))
   if (bilingualNamed) return bilingualNamed
