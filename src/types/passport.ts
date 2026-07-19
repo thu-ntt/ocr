@@ -14,7 +14,16 @@ export interface PassportData {
 
 export type PassportField = keyof PassportData
 export type FieldConfidence = Partial<Record<PassportField, number>>
-export type PassportFieldSource = 'mrz' | 'visual-label' | 'visual-inference' | 'derived' | 'missing'
+
+export const PASSPORT_FIELD_SOURCE = {
+  MRZ: 'mrz',
+  VISUAL_LABEL: 'visual-label',
+  VISUAL_INFERENCE: 'visual-inference',
+  DERIVED: 'derived',
+  MISSING: 'missing',
+} as const
+
+export type PassportFieldSource = typeof PASSPORT_FIELD_SOURCE[keyof typeof PASSPORT_FIELD_SOURCE]
 
 export interface PassportFieldEvidence<T = string> {
   value: T
@@ -47,4 +56,14 @@ export interface OCRMetrics {
   backend: string
 }
 
-export type OCRStatus = 'idle' | 'preparing' | 'recognizing' | 'parsing' | 'complete' | 'error'
+export const OCR_STATUS = {
+  IDLE: 'idle',
+  PREPARING: 'preparing',
+  RECOGNIZING: 'recognizing',
+  PARSING: 'parsing',
+  COMPLETE: 'complete',
+  ERROR: 'error',
+} as const
+
+export type OCRStatus = typeof OCR_STATUS[keyof typeof OCR_STATUS]
+export type OCRProgressStatus = typeof OCR_STATUS.RECOGNIZING | typeof OCR_STATUS.PARSING

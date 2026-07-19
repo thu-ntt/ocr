@@ -2,10 +2,15 @@ import { PassportScanError, type PassportScanErrorCode } from './passportScanErr
 
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, code: PassportScanErrorCode): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new PassportScanError(code)), timeoutMs)
+    const timeoutId = globalThis.setTimeout(
+      () => reject(new PassportScanError(code)),
+      timeoutMs,
+    )
+    const clearTimeout = () => globalThis.clearTimeout(timeoutId)
+
     promise.then(
-      (value) => { window.clearTimeout(timeout); resolve(value) },
-      (reason: unknown) => { window.clearTimeout(timeout); reject(reason) },
+      (value) => { clearTimeout(); resolve(value) },
+      (reason: unknown) => { clearTimeout(); reject(reason) },
     )
   })
 }

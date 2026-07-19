@@ -1,77 +1,78 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { OCRStatus, PassportExtraction } from '../types/passport'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import { validatePassportImage } from '../services/imageValidation.service'
 import { preparePassportOCR, scanPassport } from '../services/paddleOCR.service'
 import { getScanErrorCode } from '../services/passportScanError'
-import { preparePassportDocument } from '../services/documentPreparation.service'
-import type { PreparedDocument } from '../types/document'
-import { useTranslation } from 'react-i18next'
+import {
+  INITIAL_PASSPORT_OCR_STATE,
+  passportOCRReducer,
+} from './passportOCRState'
+
+function scheduleOCRWarmup(): () => void {
+  const warmUp = () => { void preparePassportOCR().catch(() => undefined) }
+  const requestIdle = Reflect.get(window, 'requestIdleCallback') as typeof window.requestIdleCallback | undefined
+  if (requestIdle) {
+    const idleId = requestIdle(warmUp, { timeout: 2_000 })
+    return () => window.cancelIdleCallback(idleId)
+  }
+  const timeoutId = globalThis.setTimeout(warmUp, 500)
+  return () => globalThis.clearTimeout(timeoutId)
+}
 
 export function usePassportOCR() {
   const { t } = useTranslation()
-  const [file, setFileState] = useState<File | null>(null)
-  const [preparedDocument, setPreparedDocument] = useState<PreparedDocument | null>(null)
-  const [previewUrl, setPreviewUrl] = useState('')
-  const [status, setStatus] = useState<OCRStatus>('idle')
-  const [result, setResult] = useState<PassportExtraction | null>(null)
-  const [error, setError] = useState('')
+  const [state, dispatch] = useReducer(passportOCRReducer, INITIAL_PASSPORT_OCR_STATE)
   const operationId = useRef(0)
+  const previewUrlRef = useRef('')
 
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
-
-  useEffect(() => {
-    const warmUp = () => { void preparePassportOCR().catch(() => undefined) }
-    const requestIdle = Reflect.get(window, 'requestIdleCallback') as typeof window.requestIdleCallback | undefined
-    if (requestIdle) {
-      const idleId = requestIdle(warmUp, { timeout: 2_000 })
-      return () => window.cancelIdleCallback(idleId)
-    }
-    const timeoutId = globalThis.setTimeout(warmUp, 500)
-    return () => globalThis.clearTimeout(timeoutId)
+  const replacePreviewUrl = useCallback((nextUrl: string) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    previewUrlRef.current = nextUrl
   }, [])
 
-  const setFile = useCallback((nextFile: File) => {
+  useEffect(() => () => replacePreviewUrl(''), [replacePreviewUrl])
+  useEffect(scheduleOCRWarmup, [])
+
+  const fail = useCallback((reason: unknown) => {
+    dispatch({ type: 'FAILED', error: t(`errors.${getScanErrorCode(reason)}`) })
+  }, [t])
+
+  const setFile = useCallback((file: File) => {
     const currentOperation = ++operationId.current
-    setFileState(nextFile); setPreparedDocument(null); setResult(null); setError(''); setStatus('preparing')
-    // Reuse or resume the idle warm-up without blocking document preparation.
+    replacePreviewUrl('')
+    dispatch({ type: 'FILE_SELECTED', file })
     void preparePassportOCR().catch(() => undefined)
-    void preparePassportDocument(nextFile)
-      .then((prepared) => {
+    void validatePassportImage(file)
+      .then(() => {
         if (operationId.current !== currentOperation) return
-        setPreparedDocument(prepared)
-        setPreviewUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(prepared.ocrFile) })
-        setStatus('idle')
+        const previewUrl = URL.createObjectURL(file)
+        replacePreviewUrl(previewUrl)
+        dispatch({ type: 'IMAGE_READY', previewUrl })
       })
       .catch((reason: unknown) => {
-        if (operationId.current !== currentOperation) return
-        setError(t(`errors.${getScanErrorCode(reason)}`)); setStatus('error')
+        if (operationId.current === currentOperation) fail(reason)
       })
-  }, [t])
+  }, [fail, replacePreviewUrl])
 
   const reset = useCallback(() => {
     operationId.current += 1
-    setPreviewUrl((old) => { if (old) URL.revokeObjectURL(old); return '' })
-    setFileState(null); setPreparedDocument(null); setResult(null); setError(''); setStatus('idle')
-  }, [])
+    replacePreviewUrl('')
+    dispatch({ type: 'RESET' })
+  }, [replacePreviewUrl])
 
   const scan = useCallback(async () => {
-    if (!preparedDocument) return
+    if (!state.file) return
     const currentOperation = ++operationId.current
-    // Never show data from a previous document while a new scan is running or
-    // after it fails document classification.
-    setResult(null); setStatus('preparing'); setError('')
+    dispatch({ type: 'SCAN_STARTED' })
     try {
-      const extraction = await scanPassport(preparedDocument.ocrFile, (stage) => {
-        if (operationId.current === currentOperation) setStatus(stage)
+      const result = await scanPassport(state.file, (status) => {
+        if (operationId.current === currentOperation) dispatch({ type: 'SCAN_STAGE_CHANGED', status })
       })
-      if (operationId.current !== currentOperation) return
-      setResult(extraction); setStatus('complete')
+      if (operationId.current === currentOperation) dispatch({ type: 'SCAN_COMPLETED', result })
     } catch (reason) {
-      if (operationId.current !== currentOperation) return
-      setResult(null)
-      setError(t(`errors.${getScanErrorCode(reason)}`))
-      setStatus('error')
+      if (operationId.current === currentOperation) fail(reason)
     }
-  }, [preparedDocument, t])
+  }, [fail, state.file])
 
-  return { file, preparedDocument, previewUrl, status, result, error, setFile, scan, reset }
+  return { ...state, setFile, scan, reset }
 }

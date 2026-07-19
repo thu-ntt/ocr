@@ -1,4 +1,15 @@
-export type PassportScanErrorCode = 'INVALID_FILE' | 'IMAGE_UNREADABLE' | 'PDF_INVALID' | 'PDF_TOO_MANY_PAGES' | 'PDF_PASSWORD_PROTECTED' | 'NOT_PASSPORT' | 'MRZ_NOT_FOUND' | 'OCR_INITIALIZATION_FAILED' | 'OCR_TIMEOUT' | 'OCR_FAILED'
+export const PASSPORT_SCAN_ERROR = {
+  INVALID_FILE: 'INVALID_FILE',
+  IMAGE_UNREADABLE: 'IMAGE_UNREADABLE',
+  NOT_PASSPORT: 'NOT_PASSPORT',
+  MRZ_NOT_FOUND: 'MRZ_NOT_FOUND',
+  OCR_INITIALIZATION_FAILED: 'OCR_INITIALIZATION_FAILED',
+  OCR_TIMEOUT: 'OCR_TIMEOUT',
+  OCR_FAILED: 'OCR_FAILED',
+} as const
+
+export type PassportScanErrorCode =
+  (typeof PASSPORT_SCAN_ERROR)[keyof typeof PASSPORT_SCAN_ERROR]
 
 export class PassportScanError extends Error {
   readonly code: PassportScanErrorCode
@@ -10,6 +21,8 @@ export class PassportScanError extends Error {
   }
 }
 
-export function getScanErrorCode(reason: unknown): PassportScanErrorCode {
-  return reason instanceof PassportScanError ? reason.code : 'OCR_FAILED'
+export function getScanErrorCode(error: unknown): PassportScanErrorCode {
+  return error instanceof PassportScanError
+    ? error.code
+    : PASSPORT_SCAN_ERROR.OCR_FAILED
 }

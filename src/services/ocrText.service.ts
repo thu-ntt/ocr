@@ -1,57 +1,59 @@
 import type { OcrResultItem } from '@paddleocr/paddleocr-js'
+import { OCR_CONFIG } from '../config/ocr'
 
-interface PositionedLine {
+interface PositionedText {
   item: OcrResultItem
-  x: number
-  y: number
+  left: number
+  top: number
   centerY: number
   height: number
 }
 
-function position(item: OcrResultItem): PositionedLine {
+function position(item: OcrResultItem): PositionedText {
   const xs = item.poly.map(([x]) => x)
   const ys = item.poly.map(([, y]) => y)
   const top = Math.min(...ys)
   const bottom = Math.max(...ys)
-  return { item, x: Math.min(...xs), y: top, centerY: (top + bottom) / 2, height: bottom - top }
+  return { item, left: Math.min(...xs), top, centerY: (top + bottom) / 2, height: bottom - top }
 }
 
-/** Normalizes detector output into stable top-to-bottom, left-to-right reading order. */
-export function toReadingOrder(items: OcrResultItem[]): OcrResultItem[] {
-  const positioned = items.map(position)
-  const medianHeight = positioned.map((line) => line.height).sort((a, b) => a - b)[Math.floor(positioned.length / 2)] || 10
-  const rowTolerance = medianHeight * 0.65
-  return positioned.sort((a, b) => Math.abs(a.y - b.y) <= rowTolerance ? a.x - b.x : a.y - b.y).map(({ item }) => item)
+function median(values: number[]): number {
+  if (!values.length) return OCR_CONFIG.fallbackTextHeight
+  const sorted = [...values].sort((left, right) => left - right)
+  return sorted[Math.floor(sorted.length / 2)] ?? OCR_CONFIG.fallbackTextHeight
 }
 
-/**
- * Reconstructs visual rows from PaddleOCR boxes.
- *
- * Recognition commonly returns `24`, `MAR`, and `2025` as separate items.
- * Joining every item with a newline makes a valid date impossible to parse, so
- * horizontally aligned boxes must first be restored to the same text row.
- */
-export function toTextLines(items: OcrResultItem[]): string[] {
-  if (!items.length) return []
+function rowCenter(row: PositionedText[]): number {
+  return row.reduce((total, text) => total + text.centerY, 0) / row.length
+}
 
-  const positioned = items.map(position).sort((a, b) => a.centerY - b.centerY || a.x - b.x)
-  const medianHeight = positioned
-    .map(({ height }) => height)
-    .sort((a, b) => a - b)[Math.floor(positioned.length / 2)] || 10
-  const rowTolerance = medianHeight * 0.65
-  const rows: PositionedLine[][] = []
+function groupRows(items: OcrResultItem[]): PositionedText[][] {
+  const positioned = items
+    .map(position)
+    .sort((left, right) => left.centerY - right.centerY || left.left - right.left)
+  const tolerance = median(positioned.map(({ height }) => height)) * OCR_CONFIG.rowToleranceFactor
+  const rows: PositionedText[][] = []
 
-  for (const line of positioned) {
-    const row = rows.find((candidate) => {
-      const center = candidate.reduce((sum, entry) => sum + entry.centerY, 0) / candidate.length
-      return Math.abs(center - line.centerY) <= rowTolerance
-    })
-    if (row) row.push(line)
-    else rows.push([line])
+  for (const item of positioned) {
+    const row = rows.find((candidate) => Math.abs(rowCenter(candidate) - item.centerY) <= tolerance)
+    if (row) row.push(item)
+    else rows.push([item])
   }
-
   return rows
-    .sort((a, b) => Math.min(...a.map(({ y }) => y)) - Math.min(...b.map(({ y }) => y)))
-    .map((row) => row.sort((a, b) => a.x - b.x).map(({ item }) => item.text.trim()).filter(Boolean).join(' '))
+}
+
+function rowText(row: PositionedText[]): string {
+  return row
+    .sort((left, right) => left.left - right.left)
+    .map(({ item }) => item.text.trim())
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** Reconstructs PaddleOCR boxes into top-to-bottom visual text rows. */
+export function toTextLines(items: OcrResultItem[]): string[] {
+  return groupRows(items)
+    .sort((left, right) => Math.min(...left.map(({ top }) => top)) - Math.min(...right.map(({ top }) => top)))
+    .map(rowText)
     .filter(Boolean)
 }

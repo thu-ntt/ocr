@@ -1,6 +1,7 @@
 import { parse, type FieldRecords } from 'mrz'
 import type { Gender, PassportData } from '../types/passport'
 import { mrzDate } from '../utils/passport'
+import { PASSPORT_PARSING_CONFIG } from '../config/passportParsing'
 
 export interface MrzParseResult {
   data: Partial<PassportData>
@@ -11,20 +12,66 @@ export interface MrzParseResult {
 const EMPTY_RESULT: MrzParseResult = {
   data: {},
   valid: false,
-  warnings: ['Không tìm thấy vùng MRZ TD3 gồm 2 dòng.'],
+  warnings: ['The two-line ICAO TD3 MRZ was not found.'],
 }
 
-const TD3_LINE_LENGTH = 44
-const TD3_LENGTH_TOLERANCE = 4
+export const MACHINE_READABLE_DOCUMENT_TYPE = {
+  PASSPORT: 'passport',
+  VISA: 'visa',
+  OTHER: 'other',
+  UNKNOWN: 'unknown',
+} as const
 
-export type MachineReadableDocumentType = 'passport' | 'visa' | 'other' | 'unknown'
+export type MachineReadableDocumentType =
+  typeof MACHINE_READABLE_DOCUMENT_TYPE[keyof typeof MACHINE_READABLE_DOCUMENT_TYPE]
 
-function normalizeCandidate(line: string): string {
-  return line
+function restoreTrailingNameFillers(line: string): string {
+  if (!line.trimStart().toUpperCase().startsWith('P')) return line
+
+  const trailingArtifacts = new RegExp(
+    `(?:\\s+[A-Z]){1,${PASSPORT_PARSING_CONFIG.maxTrailingFillerArtifacts}}(?=\\s*<*\\s*$)`,
+    'i',
+  )
+  return line.replace(trailingArtifacts, (value) =>
+    '<'.repeat(value.replace(/[^A-Z]/gi, '').length),
+  )
+}
+
+function clearCharactersInsideNamePadding(line: string): string {
+  const nameSeparatorIndex = line.indexOf('<<', 2)
+  if (nameSeparatorIndex < 0) return line
+
+  const fillerRun = '<'.repeat(PASSPORT_PARSING_CONFIG.trailingNameFillerRun)
+  const paddingIndex = line.indexOf(fillerRun, nameSeparatorIndex + 2)
+  if (paddingIndex < 0) return line
+
+  return line.slice(0, paddingIndex) + line.slice(paddingIndex).replace(/[A-Z0-9]/g, '<')
+}
+
+function normalizeCandidate(rawLine: string): string {
+  const normalized = restoreTrailingNameFillers(rawLine)
     .toUpperCase()
     .replace(/[«‹]/g, '<')
     .replace(/\s/g, '')
     .replace(/[^A-Z0-9<]/g, '')
+
+  return isTd3NameLine(normalized)
+    ? clearCharactersInsideNamePadding(normalized)
+    : normalized
+}
+
+function isCandidateLength(line: string): boolean {
+  return Math.abs(
+    line.length - PASSPORT_PARSING_CONFIG.td3LineLength,
+  ) <= PASSPORT_PARSING_CONFIG.td3LengthTolerance
+}
+
+function isTd3NameLine(line: string): boolean {
+  return /^P[A-Z<][A-Z]{3}/.test(line) && line.includes('<<')
+}
+
+function isTd3DataLine(line: string): boolean {
+  return !isTd3NameLine(line) && /\d/.test(line)
 }
 
 export function detectMachineReadableDocumentType(rawText: string): MachineReadableDocumentType {
@@ -34,29 +81,33 @@ export function detectMachineReadableDocumentType(rawText: string): MachineReada
     // Classification must be more tolerant than parsing. OCR may merge an MRZ
     // box with a neighbour or lose several fillers, but the document code and
     // repeated name fillers still identify a visa reliably.
-    .find((line) => line.length >= 30 && line.length <= 60 && line.includes('<<'))
+    .find((line) =>
+      line.length >= PASSPORT_PARSING_CONFIG.mrzCandidateMinLength &&
+      line.length <= PASSPORT_PARSING_CONFIG.mrzCandidateMaxLength &&
+      line.includes('<<'),
+    )
 
-  if (!firstMrzLine) return 'unknown'
-  if (firstMrzLine.startsWith('P')) return 'passport'
-  if (firstMrzLine.startsWith('V')) return 'visa'
-  return 'other'
+  if (!firstMrzLine) return MACHINE_READABLE_DOCUMENT_TYPE.UNKNOWN
+  if (firstMrzLine.startsWith('P')) return MACHINE_READABLE_DOCUMENT_TYPE.PASSPORT
+  if (firstMrzLine.startsWith('V')) return MACHINE_READABLE_DOCUMENT_TYPE.VISA
+  return MACHINE_READABLE_DOCUMENT_TYPE.OTHER
 }
 
 export function findMrzLines(rawText: string): string[] {
   const candidates = rawText
     .split(/\r?\n/)
     .map(normalizeCandidate)
-    .filter((line) => Math.abs(line.length - TD3_LINE_LENGTH) <= TD3_LENGTH_TOLERANCE)
+    .filter(isCandidateLength)
 
   // ICAO TD3 line 1 starts with document code P and contains the holder name;
   // line 2 carries the fixed-position document data and normally has fewer
   // fillers. Pair by order instead of accepting the final two long OCR lines.
   for (let firstIndex = candidates.length - 2; firstIndex >= 0; firstIndex -= 1) {
     const first = candidates[firstIndex]
-    if (!first?.startsWith('P') || !first.includes('<<')) continue
+    if (!first || !isTd3NameLine(first)) continue
     for (let secondIndex = firstIndex + 1; secondIndex < candidates.length; secondIndex += 1) {
       const second = candidates[secondIndex]
-      if (!second || !/[0-9]/.test(second) || second.startsWith('P')) continue
+      if (!second || !isTd3DataLine(second)) continue
       return [first, second].map(toTd3Length)
     }
   }
@@ -64,7 +115,9 @@ export function findMrzLines(rawText: string): string[] {
 }
 
 function toTd3Length(line: string): string {
-  return line.padEnd(TD3_LINE_LENGTH, '<').slice(0, TD3_LINE_LENGTH)
+  return line
+    .padEnd(PASSPORT_PARSING_CONFIG.td3LineLength, '<')
+    .slice(0, PASSPORT_PARSING_CONFIG.td3LineLength)
 }
 
 function mapGender(value: string | null | undefined): Gender {
@@ -73,9 +126,57 @@ function mapGender(value: string | null | undefined): Gender {
   return ''
 }
 
-function mapFields(fields: FieldRecords, documentNumber: string | null): Partial<PassportData> {
-  const surname = fields.lastName ?? ''
-  const givenName = fields.firstName ?? ''
+function removeTrailingFillerArtifacts(name: string, isMrzValid: boolean): string {
+  if (isMrzValid) return name
+
+  const parts = name.trim().split(/\s+/)
+  let artifactCount = 0
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (parts[index]?.length !== 1) break
+    artifactCount += 1
+  }
+  if (artifactCount < 2 || artifactCount > PASSPORT_PARSING_CONFIG.maxTrailingFillerArtifacts) {
+    return name
+  }
+  return parts.slice(0, -artifactCount).join(' ')
+}
+
+function readableName(value: string): string {
+  return value.replace(/<+/g, ' ').trim()
+}
+
+function readTd3Names(
+  nameLine: string,
+  fields: FieldRecords,
+  isMrzValid: boolean,
+): { surname: string; givenName: string } {
+  const nameField = nameLine.slice(5)
+  const separatorIndex = nameField.indexOf('<<')
+  if (separatorIndex < 0) {
+    return {
+      surname: fields.lastName ?? '',
+      givenName: removeTrailingFillerArtifacts(fields.firstName ?? '', isMrzValid),
+    }
+  }
+
+  const surname = readableName(nameField.slice(0, separatorIndex))
+  const givenName = readableName(nameField.slice(separatorIndex + 2))
+  return {
+    surname: surname || fields.lastName || '',
+    givenName: removeTrailingFillerArtifacts(
+      givenName || fields.firstName || '',
+      isMrzValid,
+    ),
+  }
+}
+
+function mapFields(
+  fields: FieldRecords,
+  documentNumber: string | null,
+  isMrzValid: boolean,
+  nameLine: string,
+): Partial<PassportData> {
+  const { surname, givenName } = readTd3Names(nameLine, fields, isMrzValid)
   return {
     passportNumber: documentNumber ?? fields.documentNumber ?? '',
     surname,
@@ -92,13 +193,17 @@ export function parseMrz(lines: string[]): MrzParseResult {
   if (lines.length !== 2) return EMPTY_RESULT
   try {
     const result = parse(lines, { autocorrect: true })
-    if (result.format !== 'TD3') return { ...EMPTY_RESULT, warnings: [`Định dạng ${result.format} không phải passport TD3.`] }
+    if (result.format !== 'TD3') return { ...EMPTY_RESULT, warnings: [`${result.format} is not the ICAO TD3 passport format.`] }
     const warnings = result.details
       .filter((detail) => !detail.valid)
-      .map((detail) => `${detail.label}: ${detail.error ?? 'dữ liệu không hợp lệ'}`)
-    return { data: mapFields(result.fields, result.documentNumber), valid: result.valid, warnings }
+      .map((detail) => `${detail.label}: ${detail.error ?? 'invalid data'}`)
+    return {
+      data: mapFields(result.fields, result.documentNumber, result.valid, lines[0] ?? ''),
+      valid: result.valid,
+      warnings,
+    }
   } catch (reason) {
-    const message = reason instanceof Error ? reason.message : 'MRZ không hợp lệ'
+    const message = reason instanceof Error ? reason.message : 'Invalid MRZ'
     return { ...EMPTY_RESULT, warnings: [message] }
   }
 }
