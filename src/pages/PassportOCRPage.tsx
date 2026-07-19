@@ -24,26 +24,26 @@ export function PassportOCRPage() {
           </a>
         </div>
       </header>
-      <section className="hero-section">
-        <div className="hero-copy">
-          <span className="eyebrow light">{t("hero.eyebrow")}</span>
-          <h1>
-            {t("hero.title")}
-            <br />
-            <em>{t("hero.accent")}</em>
-          </h1>
-          <p>{t("hero.description")}</p>
-        </div>
-        <div className="passport-mark" aria-hidden="true">
-          <div className="passport-lines" />
-          <span>
-            P&lt;VNMNGUYEN&lt;&lt;TIEN&lt;THU&lt;&lt;&lt;&lt;&lt;&lt;&lt;
-          </span>
-          <span>C12345678VNM9710181M3303206&lt;&lt;&lt;</span>
-        </div>
-      </section>
+        {/* <section className="hero-section">
+          <div className="hero-copy">
+            <span className="eyebrow light">{t("hero.eyebrow")}</span>
+            <h1>
+              {t("hero.title")}
+              <br />
+              <em>{t("hero.accent")}</em>
+            </h1>
+            <p>{t("hero.description")}</p>
+          </div>
+          <div className="passport-mark" aria-hidden="true">
+            <div className="passport-lines" />
+            <span>
+              P&lt;VNMNGUYEN&lt;&lt;TIEN&lt;THU&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+            </span>
+            <span>C12345678VNM9710181M3303206&lt;&lt;&lt;</span>
+          </div>
+        </section> */}
       <div className="content-shell">
-        <div className="workflow">
+        {/* <div className="workflow">
           <span className="active">
             1 <b>{t("workflow.upload")}</b>
           </span>
@@ -55,7 +55,7 @@ export function PassportOCRPage() {
           <span>
             3 <b>{t("workflow.review")}</b>
           </span>
-        </div>
+        </div> */}
         <PassportScanner />
         <footer>
           <span>{t("footer.author")}</span>
