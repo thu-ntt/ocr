@@ -51,7 +51,9 @@ function clearCharactersInsideNamePadding(line: string): string {
 function normalizeCandidate(rawLine: string): string {
   const normalized = restoreTrailingNameFillers(rawLine)
     .toUpperCase()
-    .replace(/[«‹]/g, '<')
+    // Angle-bracket lookalikes: « ‹ and caret-shaped characters (^, ∧, Λ)
+    // that appear in Turkish passport MRZ fonts and some low-quality scans.
+    .replace(/[«‹^∧Λ]/g, '<')
     .replace(/\s/g, '')
     .replace(/[^A-Z0-9<]/g, '')
   const corrected = normalized.replace(/^P0(?=[A-Z]{3}.*<<)/, 'P<')

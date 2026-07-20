@@ -6,9 +6,31 @@ import { readDateNearLabel, readTextAfterLabel } from './visualFieldReader.servi
 
 const FIELD_LABEL = /\b(?:GIVEN\s*NAMES?|SURNAME|NATIONALITY|DATE\s*OF|SEX|PASSPORT|DOCUMENT)\b/i
 
+// Passport numbers: a letter followed by 7–8 digits (most ICAO booklets),
+// or a legacy alphanumeric 6–12 char code on a header line.
+const PASSPORT_NUMBER_PATTERN = /\b([A-Z][0-9]{7,8}|[A-Z]{1,2}[0-9]{6,7})\b/
+
 function passportNumber(value: string): string {
   const number = value.trim().split(/\s/)[0]?.toUpperCase() ?? ''
   return /^[A-Z0-9]{6,12}$/.test(number) ? number : ''
+}
+
+/**
+ * Scans header lines for a standalone passport number when the label-based
+ * reader returns nothing (e.g. Turkish "PASAPORT TUR ... U25889542").
+ * Skips MRZ lines (they start with P< and contain runs of <) to avoid
+ * mis-identifying a document code as the passport number.
+ */
+function passportNumberFallback(rawText: string): string {
+  const nonMrzLines = rawText
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().toUpperCase().startsWith('P<') && !line.includes('<<'))
+
+  for (const line of nonMrzLines) {
+    const match = line.toUpperCase().match(PASSPORT_NUMBER_PATTERN)
+    if (match?.[1]) return match[1]
+  }
+  return ''
 }
 
 function holderName(value: string): string {
@@ -20,10 +42,11 @@ function holderName(value: string): string {
 }
 
 export function extractVisualPassportData(rawText: string): Partial<PassportData> {
+  const labelledNumber = passportNumber(
+    readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.passportNumber),
+  )
   return {
-    passportNumber: passportNumber(
-      readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.passportNumber),
-    ),
+    passportNumber: labelledNumber || passportNumberFallback(rawText),
     surname: holderName(
       readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.surname),
     ),
@@ -39,3 +62,4 @@ export function extractVisualPassportData(rawText: string): Partial<PassportData
     issueDate: readDateNearLabel(rawText, PASSPORT_VISUAL_LABELS.issueDate),
   }
 }
+

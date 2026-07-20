@@ -24,7 +24,10 @@ async function runDetailedFallback(
   primaryResult: OcrResult,
   initializationMs: number,
 ): Promise<PassportExtraction> {
-  const detailedImage = await prepareImageForOCR(file, OCR_CONFIG.detailedImage)
+  const detailedImage = await prepareImageForOCR(file, {
+    ...OCR_CONFIG.detailedImage,
+    enhanceContrast: true,
+  })
   const detailedResult = await recognizeText(detailedImage, {
     minimumScore: OCR_CONFIG.detailedRecognitionScore,
     detectionSide: OCR_CONFIG.detailedDetectionSide,
