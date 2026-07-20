@@ -37,12 +37,8 @@ function aggregateMetrics(results: readonly OcrResult[], initializationMs: numbe
 export function parseOCRResults(
   results: readonly OcrResult[],
   initializationMs: number,
-  supplementalText = '',
 ): PassportExtraction {
-  const rawText = [
-    ...results.map(resultText),
-    supplementalText,
-  ].filter(Boolean).join('\n')
+  const rawText = results.map(resultText).filter(Boolean).join('\n')
   return parsePassportText(
     rawText,
     averageConfidence(results),

@@ -57,21 +57,6 @@ export function resolveNationalityCode(value: string): string {
   return tokenMatch?.country.alpha3 ?? ''
 }
 
-/** Finds a country explicitly written by name in OCR text, excluding bare codes. */
-export function resolveCountryNameInText(value: string): string {
-  const normalizedValue = normalizeName(value)
-  if (!normalizedValue) return ''
-
-  const match = COUNTRY_LIST
-    .flatMap((country) => [country.officialName, country.commonName, country.name]
-      .filter((name): name is string => Boolean(name))
-      .map((name) => ({ country, name: normalizeName(name) })))
-    .filter(({ name }) => name.length >= 4 && normalizedValue.includes(name))
-    .sort((left, right) => right.name.length - left.name.length)[0]
-
-  return match?.country.alpha3 ?? ''
-}
-
 export function findCountry(code: string): Country | undefined {
   return COUNTRY_LIST.find(({ alpha3 }) => alpha3 === code)
 }

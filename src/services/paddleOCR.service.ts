@@ -1,13 +1,12 @@
 import type { OcrResult } from '@paddleocr/paddleocr-js'
 import { OCR_STATUS, type OCRProgressStatus, type PassportExtraction } from '../types/passport'
 import { OCR_CONFIG } from '../config/ocr'
-import { prepareImageForOCR, prepareMrzForOCR } from './imagePreprocessing.service'
+import { prepareImageForOCR } from './imagePreprocessing.service'
 import { logOCRResult } from './ocrDiagnostics.service'
 import { initializeOCREngine, recognizeText } from './ocrEngine.service'
 import { parseOCRResults } from './ocrResult.service'
 import { PASSPORT_SCAN_ERROR, PassportScanError } from './passportScanError'
-import { hasCompleteMrzIdentity, isExtractionComplete } from './scanPolicy.service'
-import { recognizeMrzText } from './mrzOcr.service'
+import { isExtractionComplete } from './scanPolicy.service'
 
 export async function preparePassportOCR(): Promise<void> {
   await initializeOCREngine()
@@ -31,52 +30,7 @@ async function runDetailedFallback(
     detectionSide: OCR_CONFIG.detailedDetectionSide,
   })
   logOCRResult('detailed passport image', detailedResult)
-  let detailedExtraction: PassportExtraction | null = null
-  try {
-    detailedExtraction = parseOCRResults(
-      [primaryResult, detailedResult],
-      initializationMs,
-    )
-  } catch {
-    // A full-page pass may still miss MRZ on blurred or heavily redacted VIZ.
-  }
-  if (detailedExtraction && hasCompleteMrzIdentity(detailedExtraction)) {
-    return detailedExtraction
-  }
-
-  const mrzImage = await prepareMrzForOCR(file)
-  const mrzResult = await recognizeText(mrzImage, {
-    minimumScore: OCR_CONFIG.detailedRecognitionScore,
-    detectionSide: OCR_CONFIG.detailedDetectionSide,
-  })
-  logOCRResult('passport MRZ crop', mrzResult)
-  let paddleMrzExtraction: PassportExtraction | null = null
-  try {
-    paddleMrzExtraction = parseOCRResults(
-      [primaryResult, detailedResult, mrzResult],
-      initializationMs,
-    )
-  } catch {
-    // Tesseract gets a final chance when general OCR still misses TD3.
-  }
-  if (paddleMrzExtraction && hasCompleteMrzIdentity(paddleMrzExtraction)) {
-    return paddleMrzExtraction
-  }
-
-  let tesseractMrzText = ''
-  try {
-    tesseractMrzText = await recognizeMrzText(mrzImage)
-  } catch (reason) {
-    if (paddleMrzExtraction) return paddleMrzExtraction
-    if (detailedExtraction) return detailedExtraction
-    throw reason
-  }
-  if (import.meta.env.DEV) console.info('[Passport OCR] Tesseract MRZ crop', tesseractMrzText)
-  return parseOCRResults(
-    [primaryResult, detailedResult, mrzResult],
-    initializationMs,
-    tesseractMrzText,
-  )
+  return parseOCRResults([primaryResult, detailedResult], initializationMs)
 }
 
 function tryParsePrimaryResult(
@@ -115,16 +69,7 @@ export async function scanPassport(
       return primaryExtraction
     }
 
-    try {
-      return await runDetailedFallback(file, primaryResult, initializationMs)
-    } catch (reason) {
-      // A detailed recovery pass must not discard a primary result that was
-      // already accepted as a passport. Return its editable partial data.
-      if (primaryExtraction) {
-        return primaryExtraction
-      }
-      throw reason
-    }
+    return runDetailedFallback(file, primaryResult, initializationMs)
   } catch (reason) {
     if (reason instanceof PassportScanError) throw reason
     if (import.meta.env.DEV) console.error('[Passport OCR]', reason)

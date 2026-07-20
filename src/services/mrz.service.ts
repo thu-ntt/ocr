@@ -51,7 +51,7 @@ function clearCharactersInsideNamePadding(line: string): string {
 function normalizeCandidate(rawLine: string): string {
   const normalized = restoreTrailingNameFillers(rawLine)
     .toUpperCase()
-    .replace(/[«‹^∧Λ]/g, '<')
+    .replace(/[«‹]/g, '<')
     .replace(/\s/g, '')
     .replace(/[^A-Z0-9<]/g, '')
   const corrected = normalized.replace(/^P0(?=[A-Z]{3}.*<<)/, 'P<')
@@ -98,21 +98,17 @@ export function findMrzLines(rawText: string): string[] {
   const candidates = rawText
     .split(/\r?\n/)
     .map(normalizeCandidate)
-    .filter(Boolean)
+    .filter(isCandidateLength)
 
   // ICAO TD3 line 1 starts with document code P and contains the holder name;
   // line 2 carries the fixed-position document data and normally has fewer
   // fillers. Pair by order instead of accepting the final two long OCR lines.
   for (let firstIndex = candidates.length - 2; firstIndex >= 0; firstIndex -= 1) {
     const first = candidates[firstIndex]
-    if (
-      !first ||
-      !isTd3NameLine(first) ||
-      first.length > PASSPORT_PARSING_CONFIG.td3LineLength + PASSPORT_PARSING_CONFIG.td3LengthTolerance
-    ) continue
+    if (!first || !isTd3NameLine(first)) continue
     for (let secondIndex = firstIndex + 1; secondIndex < candidates.length; secondIndex += 1) {
       const second = candidates[secondIndex]
-      if (!second || !isTd3DataLine(second) || !isCandidateLength(second)) continue
+      if (!second || !isTd3DataLine(second)) continue
       return [first, second].map(toTd3Length)
     }
   }

@@ -8,7 +8,6 @@ import { PASSPORT_SCAN_ERROR, PassportScanError } from './passportScanError'
 const PASSPORT_HEADINGS = [
   /\bPASSPORT\b/i,
   /PASSEPORT/i,
-  /PASAPORT/i,
   /护照/,
   /旅券/,
   /HỘ CHIẾU/i,
@@ -43,11 +42,7 @@ export function assertPassportDocument(
     type === MACHINE_READABLE_DOCUMENT_TYPE.OTHER
 
   if (rejectedType || VISA_HEADING.test(rawText)) rejectNotPassport()
-  if (
-    type !== MACHINE_READABLE_DOCUMENT_TYPE.PASSPORT &&
-    !hasTd3Mrz &&
-    countPassportSignals(rawText, visualData) < MINIMUM_PASSPORT_SIGNALS
-  ) {
+  if (!hasTd3Mrz && countPassportSignals(rawText, visualData) < MINIMUM_PASSPORT_SIGNALS) {
     rejectNotPassport()
   }
 }
