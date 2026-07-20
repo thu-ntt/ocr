@@ -69,7 +69,17 @@ function toIsoDate(dayValue: string, monthValue: string | number, yearValue: str
 }
 
 function monthNumber(value: string): number | null {
-  return PASSPORT_MONTH_ALIASES[value] ?? null
+  const exactMonth = PASSPORT_MONTH_ALIASES[value]
+  if (exactMonth) return exactMonth
+
+  // OCR can merge a damaged local-language month with the English month,
+  // for example "EUGJUL" instead of "EUG/JUL". The trailing ICAO-style
+  // abbreviation is the most reliable part in that case.
+  if (value.length > 3) {
+    return PASSPORT_MONTH_ALIASES[value.slice(-3)] ?? null
+  }
+
+  return null
 }
 
 function parseNamedDate(match: RegExpMatchArray | null): string {
