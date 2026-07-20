@@ -8,7 +8,7 @@ export const PASSPORT_UPLOAD_CONFIG = {
   },
   maxFiles: 1,
   maxFileSize: 12 * MEGABYTE,
-  minImageSide: 240,
+  minImageSide: 160,
   signatureBytes: 12,
 } as const
 
