@@ -1,4 +1,4 @@
-import { ImagePlus, ScanLine } from 'lucide-react'
+import { ImagePlus, LoaderCircle, ScanLine } from 'lucide-react'
 import { OCR_STATUS, type OCRStatus } from '../../types/passport'
 import { BUSY_OCR_STATUSES } from '../../config/ocr'
 import { useTranslation } from 'react-i18next'
@@ -48,7 +48,14 @@ export function PassportPreview({ url, name, status, onScan, onFile }: PassportP
       >
         <img src={url} alt={t('preview.alt')} />
         {!busy ? <span className="preview-change-hint"><ImagePlus size={16} />{t('preview.change')}</span> : null}
-        {busy ? <div className="scan-beam" /> : null}
+        {busy ? (
+          <div className="preview-loading" role="status" aria-live="polite">
+            <span className="preview-loading-icon" aria-hidden="true">
+              <LoaderCircle size={28} strokeWidth={2.25} />
+            </span>
+            <span>{t('preview.processing')}</span>
+          </div>
+        ) : null}
         <input
           hidden
           disabled={busy}

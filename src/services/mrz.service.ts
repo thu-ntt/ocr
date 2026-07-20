@@ -54,10 +54,11 @@ function normalizeCandidate(rawLine: string): string {
     .replace(/[«‹]/g, '<')
     .replace(/\s/g, '')
     .replace(/[^A-Z0-9<]/g, '')
+  const corrected = normalized.replace(/^P0(?=[A-Z]{3}.*<<)/, 'P<')
 
-  return isTd3NameLine(normalized)
-    ? clearCharactersInsideNamePadding(normalized)
-    : normalized
+  return isTd3NameLine(corrected)
+    ? clearCharactersInsideNamePadding(corrected)
+    : corrected
 }
 
 function isCandidateLength(line: string): boolean {
