@@ -19,8 +19,12 @@ async function createEngine(): Promise<OcrEngine> {
   return PaddleOCR.create({
     lang: OCR_CONFIG.language,
     ocrVersion: OCR_CONFIG.version,
-    textDetectionModelName: OCR_CONFIG.detectionModel,
-    textRecognitionModelName: OCR_CONFIG.recognitionModel,
+    ...(OCR_CONFIG.detectionModel
+      ? { textDetectionModelName: OCR_CONFIG.detectionModel }
+      : {}),
+    ...(OCR_CONFIG.recognitionModel
+      ? { textRecognitionModelName: OCR_CONFIG.recognitionModel }
+      : {}),
     textRecognitionBatchSize: OCR_CONFIG.recognitionBatchSize,
     worker: true,
     ortOptions: {

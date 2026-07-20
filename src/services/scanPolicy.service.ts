@@ -10,9 +10,14 @@ const REQUIRED_FIELDS = [
   'expiryDate',
 ] as const satisfies readonly PassportField[]
 
-/** Determines whether an expensive high-resolution OCR pass can be skipped. */
+/** Complete MRZ fields are enough for an editable result, even with checksum warnings. */
+export function hasCompleteMrzIdentity(extraction: PassportExtraction): boolean {
+  return REQUIRED_FIELDS.every((field) => Boolean(extraction.data[field]))
+}
+
+/** Retry VIZ for the issue date before considering extraction complete. */
 export function isExtractionComplete(extraction: PassportExtraction): boolean {
   return extraction.isMrzValid &&
-    REQUIRED_FIELDS.every((field) => Boolean(extraction.data[field])) &&
+    hasCompleteMrzIdentity(extraction) &&
     Boolean(extraction.data.issueDate)
 }

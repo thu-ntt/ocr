@@ -3,8 +3,10 @@ import { OCR_STATUS, type OCRStatus } from '../types/passport'
 export const OCR_CONFIG = {
   language: 'en',
   version: 'PP-OCRv5',
-  detectionModel: import.meta.env.VITE_OCR_DETECTION_MODEL || 'PP-OCRv6_tiny_det',
-  recognitionModel: import.meta.env.VITE_OCR_RECOGNITION_MODEL || 'PP-OCRv6_tiny_rec',
+  // Empty values let PaddleOCR select the stronger PP-OCRv6_small pair.
+  // Deployments can still opt into another model through environment variables.
+  detectionModel: import.meta.env.VITE_OCR_DETECTION_MODEL || '',
+  recognitionModel: import.meta.env.VITE_OCR_RECOGNITION_MODEL || '',
   maxDetectionSide: 832,
   recognitionBatchSize: 8,
   // Passport print is often small or crossed by security artwork. Keep weak
@@ -14,6 +16,7 @@ export const OCR_CONFIG = {
   detailedRecognitionScore: 0.2,
   standardImage: { minWidth: 720, maxWidth: 1_100 },
   detailedImage: { minWidth: 1_100, maxWidth: 1_400 },
+  mrzImage: { cropStartRatio: 0.68, minWidth: 1_600, maxWidth: 2_000 },
   initializationTimeoutMs: 90_000,
   predictionTimeoutMs: 45_000,
   rowToleranceFactor: 0.65,

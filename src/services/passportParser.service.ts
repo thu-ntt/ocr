@@ -1,4 +1,5 @@
 import type { OCRMetrics, PassportExtraction } from '../types/passport'
+import { resolveCountryNameInText } from '../config/nationalities'
 import { findMrzLines, parseMrz } from './mrz.service'
 import { assertPassportDocument } from './passportDocument.service'
 import {
@@ -19,6 +20,37 @@ const EMPTY_METRICS: OCRMetrics = {
   backend: 'unknown',
 }
 
+function preferVisualDocumentNumber(
+  mrzData: Partial<PassportExtraction['data']>,
+  visualData: Partial<PassportExtraction['data']>,
+): Partial<PassportExtraction['data']> {
+  const mrzNumber = mrzData.passportNumber ?? ''
+  const visualNumber = visualData.passportNumber ?? ''
+  const differsOnlyAtFirstCharacter = mrzNumber.length === visualNumber.length &&
+    mrzNumber.slice(1) === visualNumber.slice(1) &&
+    mrzNumber[0] !== visualNumber[0]
+
+  return differsOnlyAtFirstCharacter
+    ? { ...mrzData, passportNumber: '' }
+    : mrzData
+}
+
+function reconcileNationality(
+  mrzData: Partial<PassportExtraction['data']>,
+  mrzLines: string[],
+  rawText: string,
+): Partial<PassportExtraction['data']> {
+  const issuingState = mrzLines[0]?.slice(2, 5) ?? ''
+  const printedCountry = resolveCountryNameInText(rawText)
+
+  return issuingState &&
+    printedCountry === issuingState &&
+    mrzData.nationality &&
+    mrzData.nationality !== issuingState
+    ? { ...mrzData, nationality: issuingState }
+    : mrzData
+}
+
 /** Builds one passport model, with ICAO TD3 overriding visual OCR fields. */
 export function parsePassportText(
   rawText: string,
@@ -28,7 +60,14 @@ export function parsePassportText(
   const mrz = findMrzLines(rawText)
   const mrzResult = parseMrz(mrz)
   const visualData = extractVisualPassportData(rawText)
-  const mrzData = restoreMrzNameSpacing(mrzResult.data, visualData)
+  const mrzData = reconcileNationality(
+    preferVisualDocumentNumber(
+      restoreMrzNameSpacing(mrzResult.data, visualData),
+      visualData,
+    ),
+    mrz,
+    rawText,
+  )
   assertPassportDocument(rawText, mrz.length === 2, visualData)
 
   const data = mergePassportData(visualData, mrzData)

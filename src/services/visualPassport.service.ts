@@ -11,6 +11,10 @@ function passportNumber(value: string): string {
   return /^[A-Z0-9]{6,12}$/.test(number) ? number : ''
 }
 
+function inferredPassportNumber(rawText: string): string {
+  return rawText.toUpperCase().match(/\b[A-Z][0-9]{8}\b/)?.[0] ?? ''
+}
+
 function holderName(value: string): string {
   const name = value.trim().replace(/\s+/g, ' ').toUpperCase()
   const isValid = name.length <= PASSPORT_PARSING_CONFIG.maxNameLength &&
@@ -20,10 +24,12 @@ function holderName(value: string): string {
 }
 
 export function extractVisualPassportData(rawText: string): Partial<PassportData> {
+  const labelledPassportNumber = passportNumber(
+    readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.passportNumber),
+  )
+
   return {
-    passportNumber: passportNumber(
-      readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.passportNumber),
-    ),
+    passportNumber: labelledPassportNumber || inferredPassportNumber(rawText),
     surname: holderName(
       readTextAfterLabel(rawText, PASSPORT_VISUAL_LABELS.surname),
     ),
